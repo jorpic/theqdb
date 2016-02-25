@@ -2,13 +2,15 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"net/url"
 	"strings"
 )
 
-const TheQ = "http://thequestion.ru/questions/next/%i"
+const TheQ = "http://thequestion.ru/questions/next/%d"
 
 type URL *url.URL
 
@@ -23,7 +25,7 @@ func main() {
 
 	if *proxyFilePtr != "" {
 		proxyList, err = readProxyList(*proxyFilePtr)
-		if proxyList == nil {
+		if err != nil {
 			log.Panicf(
 				"Can't read list of proxies form '%s': %v.",
 				*proxyFilePtr, err)
@@ -33,7 +35,17 @@ func main() {
 		proxyList = []URL{nil}
 	}
 
-	log.Println(proxyList)
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyList[0]),
+		}}
+
+	var pageUrl = fmt.Sprintf(TheQ, 50)
+	q, err := fetchQuestion(pageUrl, httpClient)
+	if err != nil {
+		log.Panic(err)
+	}
+	log.Println((*q).q)
 }
 
 func readProxyList(fileName string) ([]URL, error) {
@@ -53,6 +65,26 @@ func readProxyList(fileName string) ([]URL, error) {
 	return proxies, nil
 }
 
-func fetchQuestion(id int) string {
-	return ""
+type Question struct {
+	q string
+}
+
+func fetchQuestion(url string, client *http.Client) (*Question, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	txt, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	q, err := parseQuestion(string(txt))
+	if err != nil {
+		return nil, err
+	}
+	return q, nil
+}
+
+func parseQuestion(txt string) (*Question, error) {
+	return &Question{q: txt}, nil
 }
