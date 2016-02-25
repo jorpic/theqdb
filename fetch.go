@@ -20,19 +20,11 @@ func main() {
 		"File with a list of proxies to use")
 	flag.Parse()
 
-	var err error
-	var proxyList []URL
-
-	if *proxyFilePtr != "" {
-		proxyList, err = readProxyList(*proxyFilePtr)
-		if err != nil {
-			log.Panicf(
-				"Can't read list of proxies form '%s': %v.",
-				*proxyFilePtr, err)
-		}
-	} else {
-		// URL = nil means "do not use proxy"
-		proxyList = []URL{nil}
+	proxyList, err := getProxyList(*proxyFilePtr)
+	if err != nil {
+		log.Panicf(
+			"Can't read list of proxies form '%s': %v.",
+			*proxyFilePtr, err)
 	}
 
 	httpClient := &http.Client{
@@ -48,7 +40,13 @@ func main() {
 	log.Println((*q).q)
 }
 
-func readProxyList(fileName string) ([]URL, error) {
+func getProxyList(fileName string) ([]URL, error) {
+	if fileName == "" {
+	  // Proxy list is not provided, return "fake proxy" with URL=nil
+		// to connect directly.
+		return []URL{nil}, nil
+	}
+
 	txt, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		return nil, err
