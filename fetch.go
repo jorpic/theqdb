@@ -1,9 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"flag"
 	"fmt"
 	. "github.com/jorpic/theqdb/util"
+	_ "github.com/lib/pq"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -33,15 +35,51 @@ func main() {
 			Proxy: http.ProxyURL(proxyList[0]),
 		}}
 
-	var pageUrl = fmt.Sprintf(TheQ, 55)
+	var pageUrl = fmt.Sprintf(TheQ, 555)
 	q, err := fetchQuestion(pageUrl, httpClient)
 	if err != nil {
 		log.Panic(err)
 	}
-	log.Println(*q)
-	for _, ans := range (*q).Answers {
-		log.Println(*ans)
+
+	db, err := sql.Open(
+	  "postgres",
+	  "user=user dbname=theq port=5434 password=pwd")
+	if err != nil {
+		log.Panic(err)
 	}
+	defer db.Close()
+
+  err = dbInsertQuestion(db, q)
+	if err != nil {
+		log.Panic(err)
+	}
+}
+
+func dbInsertQuestion(db *sql.DB, q *Question) error {
+  var err error = nil
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(
+		`insert into raw_question(id, data)
+        values ($1::int, $2::jsonb)`,
+		(*q).Id, (*q).Json)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	for _, ans := range (*q).Answers {
+		_, err = tx.Exec(
+			`insert into raw_answer(id, user_id, data)
+          values ($1::int, $2::int, $3::jsonb)`,
+			(*ans).Id, (*ans).UserId, (*ans).Json)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func getProxyList(fileName string) ([]URL, error) {
