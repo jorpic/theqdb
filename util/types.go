@@ -1,7 +1,7 @@
 package util
 
 type Question struct {
-	Id      int
+	Id      uint64
 	Json    string
 	Answers []*Answer
 }

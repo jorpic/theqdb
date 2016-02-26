@@ -29,7 +29,7 @@ func ParseQuestion(body []byte) (*Question, error) {
 
 	var htmlReader = strings.NewReader(rawQ["questionHTML"].(string))
 	var htmlTokenizer = html.NewTokenizer(htmlReader)
-	var question = Question{Id: int(qId.(float64))}
+	var question = Question{Id: uint64(qId.(float64))}
 	var answer = &Answer{}
 
 tokenLoop:
@@ -38,35 +38,26 @@ tokenLoop:
 		case html.ErrorToken:
 			break tokenLoop // end of document
 
-    // Parser is very fragile, it expects data bits to occur in order.
+			// Parser is very fragile, it expects data bits to occur in order.
 		case html.StartTagToken:
-			tok := htmlTokenizer.Token()
-			if attr := getAttr("div", "question-data", tok); attr != nil {
-				question.Json = (*attr).Val
-			} else if attr := getAttr("div", "id", tok); attr != nil {
-				if match := AnswerIdRx.FindStringSubmatch((*attr).Val); match != nil {
-					if res, err := strconv.ParseUint(match[1], 10, 64); err == nil {
-						(*answer).Id = res
-					}
-				}
-			} else if attr := getAttr("script", "type", tok); attr != nil {
-				if (*attr).Val == "application/ld+json" {
-					htmlTokenizer.Next() // get text node next to <script> tag
-					(*answer).Json = htmlTokenizer.Token().Data
-				}
-			} else if attr := getAttr("a", "class", tok); attr != nil {
-				if (*attr).Val == "answer__account-username" {
-					attr := getAttr("a", "href", tok)
-					if match := UserIdRx.FindStringSubmatch((*attr).Val); match != nil {
-						if res, err := strconv.ParseUint(match[1], 10, 64); err == nil {
-							(*answer).UserId = res
-							// All fileds in `answer` are set up, add it to the `question` and
-							// allocate the new one to proceed.
-							question.Answers = append(question.Answers, answer)
-							answer = &Answer{}
-						}
-					}
-				}
+			var m = match(htmlTokenizer.Token())
+			if m.tag("div").attr("question-data").to(&question.Json) {
+			  continue
+			}
+			if m.tag("div").attr("id").extract(AnswerIdRx).toInt(&answer.Id) {
+				continue
+			}
+			if m.tag("script").attr("type").val("application/ld+json") {
+				htmlTokenizer.Next() // get text node next to <script> tag
+				(*answer).Json = htmlTokenizer.Token().Data
+				continue
+			}
+			if m.tag("a").attr("class").val("answer__account-username") {
+				m.tag("a").attr("href").extract(UserIdRx).toInt(&answer.UserId)
+				// All fileds in `answer` are set up, add it to the `question` and
+				// allocate the new one to proceed.
+				question.Answers = append(question.Answers, answer)
+				answer = &Answer{}
 			}
 
 		default:
@@ -77,15 +68,67 @@ tokenLoop:
 	return &question, nil
 }
 
-// getAddr checks if token matches tagName and searches for attr with
-// specified attrName.
-func getAttr(tagName string, attrName string, t html.Token) *html.Attribute {
-	if t.Data == tagName {
-		for _, attr := range t.Attr {
-			if attr.Key == attrName {
-				return &attr
+// Everyting below is ugly but simple DSL
+// for matching & extacting parts of HTML.
+// ---------------------------------------
+type Matcher struct {
+	Token *html.Token
+	Val   string
+	Match bool
+}
+
+func match(t html.Token) *Matcher {
+	return &Matcher{Token: &t, Match: true}
+}
+
+func (mp *Matcher) tag(name string) *Matcher {
+  (*mp).Match = (*(*mp).Token).Data == name
+	return mp
+}
+
+func (mp *Matcher) attr(name string) *Matcher {
+	if (*mp).Match {
+		(*mp).Match = false
+		for _, attr := range (*(*mp).Token).Attr {
+			if attr.Key == name {
+				(*mp).Val = attr.Val
+				(*mp).Match = true
+				break
 			}
 		}
 	}
-	return nil
+	return mp
+}
+
+func (mp *Matcher) extract(rx *regexp.Regexp) *Matcher {
+	if (*mp).Match {
+		(*mp).Match = false
+		if rxMatch := rx.FindStringSubmatch((*mp).Val); rxMatch != nil {
+			(*mp).Val = rxMatch[1]
+			(*mp).Match = true
+		}
+	}
+	return mp
+}
+
+func (mp *Matcher) to(val *string) bool {
+	if (*mp).Match {
+		*val = (*mp).Val
+	}
+	return (*mp).Match
+}
+
+func (mp *Matcher) toInt(val *uint64) bool {
+	if (*mp).Match {
+		(*mp).Match = false
+		if res, err := strconv.ParseUint((*mp).Val, 10, 64); err == nil {
+			*val = res
+			(*mp).Match = true
+		}
+	}
+	return (*mp).Match
+}
+
+func (mp *Matcher) val(val string) bool {
+	return (*mp).Match && val == (*mp).Val
 }
