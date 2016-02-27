@@ -35,7 +35,7 @@ func main() {
 			Proxy: http.ProxyURL(proxyList[0]),
 		}}
 
-	var pageUrl = fmt.Sprintf(TheQ, 555)
+	var pageUrl = fmt.Sprintf(TheQ, 155)
 	q, err := fetchQuestion(pageUrl, httpClient)
 	if err != nil {
 		log.Panic(err)
@@ -64,16 +64,16 @@ func dbInsertQuestion(db *sql.DB, q *Question) error {
 	_, err = tx.Exec(
 		`insert into raw_question(id, data)
         values ($1::int, $2::jsonb)`,
-		(*q).Id, (*q).Json)
+		q.Id, q.Json)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
-	for _, ans := range (*q).Answers {
+	for _, ans := range q.Answers {
 		_, err = tx.Exec(
 			`insert into raw_answer(id, user_id, data)
           values ($1::int, $2::int, $3::jsonb)`,
-			(*ans).Id, (*ans).UserId, (*ans).Json)
+			ans.Id, ans.UserId, ans.Json)
 		if err != nil {
 			tx.Rollback()
 			return err

@@ -49,7 +49,7 @@ tokenLoop:
 			}
 			if m.tag("script").attr("type").val("application/ld+json") {
 				htmlTokenizer.Next() // get text node next to <script> tag
-				(*answer).Json = htmlTokenizer.Token().Data
+				answer.Json = htmlTokenizer.Token().Data
 				continue
 			}
 			if m.tag("a").attr("class").val("answer__account-username") {
@@ -82,17 +82,17 @@ func match(t html.Token) *Matcher {
 }
 
 func (mp *Matcher) tag(name string) *Matcher {
-  (*mp).Match = (*(*mp).Token).Data == name
+  mp.Match = mp.Token.Data == name
 	return mp
 }
 
 func (mp *Matcher) attr(name string) *Matcher {
-	if (*mp).Match {
-		(*mp).Match = false
-		for _, attr := range (*(*mp).Token).Attr {
+	if mp.Match {
+		mp.Match = false
+		for _, attr := range mp.Token.Attr {
 			if attr.Key == name {
-				(*mp).Val = attr.Val
-				(*mp).Match = true
+				mp.Val = attr.Val
+				mp.Match = true
 				break
 			}
 		}
@@ -101,34 +101,34 @@ func (mp *Matcher) attr(name string) *Matcher {
 }
 
 func (mp *Matcher) extract(rx *regexp.Regexp) *Matcher {
-	if (*mp).Match {
-		(*mp).Match = false
-		if rxMatch := rx.FindStringSubmatch((*mp).Val); rxMatch != nil {
-			(*mp).Val = rxMatch[1]
-			(*mp).Match = true
+	if mp.Match {
+		mp.Match = false
+		if rxMatch := rx.FindStringSubmatch(mp.Val); rxMatch != nil {
+			mp.Val = rxMatch[1]
+			mp.Match = true
 		}
 	}
 	return mp
 }
 
 func (mp *Matcher) to(val *string) bool {
-	if (*mp).Match {
-		*val = (*mp).Val
+	if mp.Match {
+		*val = mp.Val
 	}
 	return (*mp).Match
 }
 
 func (mp *Matcher) toInt(val *uint64) bool {
-	if (*mp).Match {
-		(*mp).Match = false
-		if res, err := strconv.ParseUint((*mp).Val, 10, 64); err == nil {
+	if mp.Match {
+		mp.Match = false
+		if res, err := strconv.ParseUint(mp.Val, 10, 64); err == nil {
 			*val = res
-			(*mp).Match = true
+			mp.Match = true
 		}
 	}
 	return (*mp).Match
 }
 
 func (mp *Matcher) val(val string) bool {
-	return (*mp).Match && val == (*mp).Val
+	return mp.Match && val == mp.Val
 }
