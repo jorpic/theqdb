@@ -1,17 +1,21 @@
 package main
 
 import (
-	"database/sql"
 	"flag"
 	"fmt"
-	. "github.com/jorpic/theqdb/util"
-	_ "github.com/lib/pq"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
 )
+
+import (
+	"database/sql"
+	_ "github.com/lib/pq"
+)
+
+import . "github.com/jorpic/theqdb/util"
 
 const TheQ = "http://thequestion.ru/questions/next/%d"
 
@@ -42,21 +46,21 @@ func main() {
 	}
 
 	db, err := sql.Open(
-	  "postgres",
-	  "user=user dbname=theq port=5434 password=pwd")
+		"postgres",
+		"user=user dbname=theq port=5434 password=pwd")
 	if err != nil {
 		log.Panic(err)
 	}
 	defer db.Close()
 
-  err = dbInsertQuestion(db, q)
+	err = dbInsertQuestion(db, q)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
 func dbInsertQuestion(db *sql.DB, q *Question) error {
-  var err error = nil
+	var err error = nil
 	tx, err := db.Begin()
 	if err != nil {
 		return err
