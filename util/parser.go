@@ -42,7 +42,7 @@ tokenLoop:
 		case html.StartTagToken:
 			var m = match(htmlTokenizer.Token())
 			if m.tag("div").attr("question-data").to(&question.Json) {
-			  continue
+				continue
 			}
 			if m.tag("div").attr("id").extract(AnswerIdRx).toInt(&answer.Id) {
 				continue
@@ -82,7 +82,7 @@ func match(t html.Token) *Matcher {
 }
 
 func (mp *Matcher) tag(name string) *Matcher {
-  mp.Match = mp.Token.Data == name
+	mp.Match = mp.Token.Data == name
 	return mp
 }
 

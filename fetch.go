@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -19,25 +18,12 @@ import . "github.com/jorpic/theqdb/util"
 
 const TheQ = "http://thequestion.ru/questions/next/%d"
 
-type URL *url.URL
-
 func main() {
-	var proxyFilePtr = flag.String(
-		"proxy-list", "",
-		"File with a list of proxies to use")
-	flag.Parse()
-
-	proxyList, err := getProxyList(*proxyFilePtr)
-	if err != nil {
-		log.Panicf(
-			"Can't read list of proxies form '%s': %v.",
-			*proxyFilePtr, err)
-	}
+	config := GetConfig()
 
 	httpClient := &http.Client{
 		Transport: &http.Transport{
-			Proxy: http.ProxyURL(proxyList[0]),
-		}}
+			Proxy: http.ProxyURL(config.ProxyList[0])}}
 
 	var pageUrl = fmt.Sprintf(TheQ, 155)
 	q, err := fetchQuestion(pageUrl, httpClient)
@@ -45,11 +31,9 @@ func main() {
 		log.Panic(err)
 	}
 
-	db, err := sql.Open(
-		"postgres",
-		"user=user dbname=theq port=5434 password=pwd")
-	if err != nil {
-		log.Panic(err)
+	db, err := sql.Open("postgres", config.PgConnString)
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to connect DB: %v", err)
 	}
 	defer db.Close()
 
@@ -84,30 +68,6 @@ func dbInsertQuestion(db *sql.DB, q *Question) error {
 		}
 	}
 	return tx.Commit()
-}
-
-func getProxyList(fileName string) ([]URL, error) {
-	if fileName == "" {
-		// Proxy list is not provided, return "fake proxy" with URL=nil
-		// to connect directly.
-		return []URL{nil}, nil
-	}
-
-	txt, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		return nil, err
-	}
-
-	var lines = strings.Split(string(txt), "\n")
-	var proxies = make([]URL, len(lines))
-	for i, ln := range lines {
-		proxyUrl, err := url.Parse(ln)
-		if err != nil {
-			return nil, err
-		}
-		proxies[i] = proxyUrl
-	}
-	return proxies, nil
 }
 
 func fetchQuestion(url string, client *http.Client) (*Question, error) {
