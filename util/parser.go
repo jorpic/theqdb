@@ -10,26 +10,27 @@ import (
 )
 
 // get answer id form <div id=answer-1234>
-var AnswerIdRx = regexp.MustCompile("^answer-(\\d+)$")
+var answerIDRx = regexp.MustCompile("^answer-(\\d+)$")
 
 // get user id from account URL
-var UserIdRx = regexp.MustCompile("^/account/(\\d+)")
+var userIDRx = regexp.MustCompile("^/account/(\\d+)")
 
+// ParseQuestion extracts question & answers data from HTML page.
 func ParseQuestion(body []byte) (*Question, error) {
 	var rawQ map[string]interface{}
 	if err := json.Unmarshal(body, &rawQ); err != nil {
 		return nil, err
 	}
 
-	var qId = rawQ["questionId"]
-	var qHtml = rawQ["questionHTML"]
-	if qHtml == nil || qId == nil {
+	var qID = rawQ["questionId"]
+	var qHTML = rawQ["questionHTML"]
+	if qHTML == nil || qID == nil {
 		return nil, fmt.Errorf("Unexepcted JSON document")
 	}
 
 	var htmlReader = strings.NewReader(rawQ["questionHTML"].(string))
 	var htmlTokenizer = html.NewTokenizer(htmlReader)
-	var question = Question{Id: uint64(qId.(float64))}
+	var question = Question{ID: uint64(qID.(float64))}
 	var answer = &Answer{}
 
 tokenLoop:
@@ -41,19 +42,19 @@ tokenLoop:
 			// Parser is very fragile, it expects data bits to occur in order.
 		case html.StartTagToken:
 			var m = match(htmlTokenizer.Token())
-			if m.tag("div").attr("question-data").to(&question.Json) {
+			if m.tag("div").attr("question-data").to(&question.JSON) {
 				continue
 			}
-			if m.tag("div").attr("id").extract(AnswerIdRx).toInt(&answer.Id) {
+			if m.tag("div").attr("id").extract(answerIDRx).toInt(&answer.ID) {
 				continue
 			}
 			if m.tag("script").attr("type").val("application/ld+json") {
 				htmlTokenizer.Next() // get text node next to <script> tag
-				answer.Json = htmlTokenizer.Token().Data
+				answer.JSON = htmlTokenizer.Token().Data
 				continue
 			}
 			if m.tag("a").attr("class").val("answer__account-username") {
-				m.tag("a").attr("href").extract(UserIdRx).toInt(&answer.UserId)
+				m.tag("a").attr("href").extract(userIDRx).toInt(&answer.UserID)
 				// All fileds in `answer` are set up, add it to the `question` and
 				// allocate the new one to proceed.
 				question.Answers = append(question.Answers, answer)
@@ -68,25 +69,25 @@ tokenLoop:
 	return &question, nil
 }
 
-// Everyting below is ugly but simple DSL
+// Everything below is ugly but simple DSL
 // for matching & extacting parts of HTML.
 // ---------------------------------------
-type Matcher struct {
+type matcher struct {
 	Token *html.Token
 	Val   string
 	Match bool
 }
 
-func match(t html.Token) *Matcher {
-	return &Matcher{Token: &t, Match: true}
+func match(t html.Token) *matcher {
+	return &matcher{Token: &t, Match: true}
 }
 
-func (mp *Matcher) tag(name string) *Matcher {
+func (mp *matcher) tag(name string) *matcher {
 	mp.Match = mp.Token.Data == name
 	return mp
 }
 
-func (mp *Matcher) attr(name string) *Matcher {
+func (mp *matcher) attr(name string) *matcher {
 	if mp.Match {
 		mp.Match = false
 		for _, attr := range mp.Token.Attr {
@@ -100,7 +101,7 @@ func (mp *Matcher) attr(name string) *Matcher {
 	return mp
 }
 
-func (mp *Matcher) extract(rx *regexp.Regexp) *Matcher {
+func (mp *matcher) extract(rx *regexp.Regexp) *matcher {
 	if mp.Match {
 		mp.Match = false
 		if rxMatch := rx.FindStringSubmatch(mp.Val); rxMatch != nil {
@@ -111,14 +112,14 @@ func (mp *Matcher) extract(rx *regexp.Regexp) *Matcher {
 	return mp
 }
 
-func (mp *Matcher) to(val *string) bool {
+func (mp *matcher) to(val *string) bool {
 	if mp.Match {
 		*val = mp.Val
 	}
 	return (*mp).Match
 }
 
-func (mp *Matcher) toInt(val *uint64) bool {
+func (mp *matcher) toInt(val *uint64) bool {
 	if mp.Match {
 		mp.Match = false
 		if res, err := strconv.ParseUint(mp.Val, 10, 64); err == nil {
@@ -129,6 +130,6 @@ func (mp *Matcher) toInt(val *uint64) bool {
 	return (*mp).Match
 }
 
-func (mp *Matcher) val(val string) bool {
+func (mp *matcher) val(val string) bool {
 	return mp.Match && val == mp.Val
 }

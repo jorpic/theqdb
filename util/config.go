@@ -8,15 +8,16 @@ import (
 	"strings"
 )
 
-type URL *url.URL
 
+// Config holds various options that control program execution.
 type Config struct {
 	// List of proxy URLs to use.
 	// URL can be `nil` to connect without proxy.
-	ProxyList    []URL
+	ProxyList    []*url.URL
 	PgConnString string
 }
 
+// GetConfig parses config from command line options.
 func GetConfig() *Config {
 	var proxyFilePtr = flag.String(
 		"proxy-list", "",
@@ -37,11 +38,11 @@ func GetConfig() *Config {
     PgConnString: *dbConnStringPtr}
 }
 
-func getProxyList(fileName string) ([]URL, error) {
+func getProxyList(fileName string) ([]*url.URL, error) {
 	if fileName == "" {
 		// Proxy list is not provided, return "fake proxy" with URL=nil
 		// to connect without proxy.
-		return []URL{nil}, nil
+		return []*url.URL{nil}, nil
 	}
 
 	txt, err := ioutil.ReadFile(fileName)
@@ -50,13 +51,13 @@ func getProxyList(fileName string) ([]URL, error) {
 	}
 
 	var lines = strings.Split(string(txt), "\n")
-	var proxies = make([]URL, len(lines))
+	var proxies = make([]*url.URL, len(lines))
 	for i, ln := range lines {
-		proxyUrl, err := url.Parse(ln)
+		proxyURL, err := url.Parse(ln)
 		if err != nil {
 			return nil, err
 		}
-		proxies[i] = proxyUrl
+		proxies[i] = proxyURL
 	}
 	return proxies, nil
 }

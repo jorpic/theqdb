@@ -5,8 +5,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
-	"strings"
 )
 
 import (
@@ -16,7 +14,7 @@ import (
 
 import . "github.com/jorpic/theqdb/util"
 
-const TheQ = "http://thequestion.ru/questions/next/%d"
+const theQ = "http://thequestion.ru/questions/next/%d"
 
 func main() {
 	config := GetConfig()
@@ -25,8 +23,8 @@ func main() {
 		Transport: &http.Transport{
 			Proxy: http.ProxyURL(config.ProxyList[0])}}
 
-	var pageUrl = fmt.Sprintf(TheQ, 155)
-	q, err := fetchQuestion(pageUrl, httpClient)
+	var pageURL = fmt.Sprintf(theQ, 153)
+	q, err := fetchQuestion(pageURL, httpClient)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -44,15 +42,15 @@ func main() {
 }
 
 func dbInsertQuestion(db *sql.DB, q *Question) error {
-	var err error = nil
+	var err error
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(
 		`insert into raw_question(id, data)
-        values ($1::int, $2::jsonb)`,
-		q.Id, q.Json)
+			values ($1::int, $2::jsonb)`,
+		q.ID, q.JSON)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -60,8 +58,8 @@ func dbInsertQuestion(db *sql.DB, q *Question) error {
 	for _, ans := range q.Answers {
 		_, err = tx.Exec(
 			`insert into raw_answer(id, user_id, data)
-          values ($1::int, $2::int, $3::jsonb)`,
-			ans.Id, ans.UserId, ans.Json)
+				values ($1::int, $2::int, $3::jsonb)`,
+			ans.ID, ans.UserID, ans.JSON)
 		if err != nil {
 			tx.Rollback()
 			return err
