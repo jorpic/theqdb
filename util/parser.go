@@ -9,12 +9,6 @@ import (
 	"strings"
 )
 
-// get answer id form <div id=answer-1234>
-var answerIDRx = regexp.MustCompile("^answer-(\\d+)$")
-
-// get user id from account URL
-var userIDRx = regexp.MustCompile("^/account/(\\d+)")
-
 // ParseQuestion extracts question & answers data from HTML page.
 func ParseQuestion(body []byte) (*Question, error) {
 	var rawQ map[string]interface{}
@@ -68,6 +62,12 @@ tokenLoop:
 
 	return &question, nil
 }
+
+// get answer id form <div id=answer-1234>
+var answerIDRx = regexp.MustCompile("^answer-(\\d+)$")
+
+// get user id from account URL
+var userIDRx = regexp.MustCompile("^/account/(\\d+)")
 
 // Everything below is ugly but simple DSL
 // for matching & extacting parts of HTML.
