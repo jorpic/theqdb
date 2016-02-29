@@ -6,9 +6,9 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
-	"time"
 )
 
 import (
@@ -79,42 +79,49 @@ func jobGenerator(db *sql.DB, maxID int, jobs chan int) {
 }
 
 func worker(wg *sync.WaitGroup, db *sql.DB, jobSrc chan int, config *Config) {
-	rand.Seed(time.Now().UnixNano())
+	proxies := config.ProxyList
+	var goodProxies = []*url.URL{}
+
 	for {
-		id, gotJob := <-jobSrc
-		if !gotJob {
-			wg.Done()
-			return
+		if len(proxies) == 0 {
+			if len(goodProxies) == 0 {
+				log.Printf("Terminating worker: proxy list is empty.")
+				wg.Done()
+				return
+			}
+			log.Printf("===== %d proxies survived round!", len(goodProxies))
+			for _, p := range goodProxies {
+				log.Println(p.Host)
+			}
+			proxies = goodProxies
+			goodProxies = []*url.URL{}
 		}
 
-		proxies := config.ProxyList
-		randomProxy := proxies[rand.Intn(len(proxies))]
-		httpClient := &http.Client{
-			Transport: &http.Transport{
-				Proxy: http.ProxyURL(randomProxy)}}
+		for _, i := range rand.Perm(len(proxies)) {
+			proxy := proxies[i]
 
-		var pageURL = fmt.Sprintf(theQ, id)
+			id, gotJob := <-jobSrc
+			if !gotJob {
+				wg.Done()
+				return
+			}
 
-		q, err := fetchQuestion(pageURL, httpClient)
-		if err == errBadProxy {
-			log.Printf("Failed to fetch %d", id)
-			log.Printf("Adding to bad proxy list: %v", randomProxy)
-			continue
-		}
-		if err == errRateLimit {
-			log.Printf("Rate limit %s", randomProxy)
-			wg.Done()
-			return
-		}
-		if err != nil {
-			log.Printf("Failed to fetch %d: %v", id, err)
-			continue
-		}
+			httpClient := &http.Client{
+				Transport: &http.Transport{
+					Proxy: http.ProxyURL(proxy)}}
 
-		err = dbInsertQuestion(db, q)
-		if err != nil {
-			log.Printf("Failed to store %d:, %d %v", id, q.ID, err)
-			continue
+			var pageURL = fmt.Sprintf(theQ, id)
+
+			q, err := fetchQuestion(pageURL, httpClient)
+			if err != nil {
+				continue
+			}
+			goodProxies = append(goodProxies, proxy)
+
+			err = dbInsertQuestion(db, q)
+			if err != nil {
+				log.Printf("Failed to store %d: %v", id, err)
+			}
 		}
 	}
 }
