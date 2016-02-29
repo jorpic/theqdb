@@ -6,7 +6,9 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strings"
 	"sync"
+	"time"
 )
 
 import (
@@ -43,14 +45,15 @@ func main() {
 func jobGenerator(db *sql.DB, maxID int, jobs chan int) {
 	// get IDs of missing questions
 	rows, err := db.Query(
-		`select generate_series(a+1, b-1)
+		`select generate_series(a+1, b-1) as id
 		   from
 		     (select
 		         lag(id, 1, 0) over (order by id asc) as a,
 		         id as b
 		       from raw_question) x
 		   where a+1 <> b
-		 union (select coalesce(max(id),0)+1 from raw_question)`)
+		   union (select coalesce(max(id),0)+1 from raw_question)
+		   order by id`)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -63,7 +66,7 @@ func jobGenerator(db *sql.DB, maxID int, jobs chan int) {
 		}
 		jobs <- id
 	}
-	if err := rows.Err(); err != sql.ErrNoRows {
+	if err := rows.Err(); err != nil && err != sql.ErrNoRows {
 		log.Fatal(err)
 	}
 
@@ -76,6 +79,7 @@ func jobGenerator(db *sql.DB, maxID int, jobs chan int) {
 }
 
 func worker(wg *sync.WaitGroup, db *sql.DB, jobSrc chan int, config *Config) {
+	rand.Seed(time.Now().UnixNano())
 	for {
 		id, gotJob := <-jobSrc
 		if !gotJob {
@@ -92,6 +96,16 @@ func worker(wg *sync.WaitGroup, db *sql.DB, jobSrc chan int, config *Config) {
 		var pageURL = fmt.Sprintf(theQ, id)
 
 		q, err := fetchQuestion(pageURL, httpClient)
+		if err == errBadProxy {
+			log.Printf("Failed to fetch %d", id)
+			log.Printf("Adding to bad proxy list: %v", randomProxy)
+			continue
+		}
+		if err == errRateLimit {
+			log.Printf("Rate limit %s", randomProxy)
+			wg.Done()
+			return
+		}
 		if err != nil {
 			log.Printf("Failed to fetch %d: %v", id, err)
 			continue
@@ -99,7 +113,7 @@ func worker(wg *sync.WaitGroup, db *sql.DB, jobSrc chan int, config *Config) {
 
 		err = dbInsertQuestion(db, q)
 		if err != nil {
-			log.Printf("Failed to store %d: %v", id, err)
+			log.Printf("Failed to store %d:, %d %v", id, q.ID, err)
 			continue
 		}
 	}
@@ -132,10 +146,17 @@ func dbInsertQuestion(db *sql.DB, q *Question) error {
 	return tx.Commit()
 }
 
+var errBadProxy = fmt.Errorf("Bad proxy?")
+var errMalformedQuestion = fmt.Errorf("Malformed question")
+var errRateLimit = fmt.Errorf("Rate limit")
+
 func fetchQuestion(url string, client *http.Client) (*Question, error) {
-	resp, err := client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "Googlebot/2.1 (+http://www.google.com/bot.html)")
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		log.Println(err)
+		return nil, errBadProxy
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
@@ -144,7 +165,12 @@ func fetchQuestion(url string, client *http.Client) (*Question, error) {
 	}
 	q, err := ParseQuestion(body)
 	if err != nil {
-		return nil, err
+		b := string(body)
+		if strings.Contains(b, "enot") || strings.Contains(b, "<title>Ошибка") {
+			return nil, errRateLimit
+		}
+		log.Println(string(body), err)
+		return nil, errMalformedQuestion
 	}
 	return q, nil
 }
