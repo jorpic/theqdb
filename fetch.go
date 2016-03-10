@@ -70,6 +70,7 @@ func jobGenerator(db *sql.DB, maxID int, jobs chan int) {
 		log.Fatal(err)
 	}
 
+	id++
 	// IDs of rest of questions
 	for ; id <= maxID; id++ {
 		jobs <- id
@@ -83,21 +84,7 @@ func worker(wg *sync.WaitGroup, db *sql.DB, jobSrc chan int, config *Config) {
 	var goodProxies = []*url.URL{}
 
 	for {
-		if len(proxies) == 0 {
-			if len(goodProxies) == 0 {
-				log.Printf("Terminating worker: proxy list is empty.")
-				wg.Done()
-				return
-			}
-			log.Printf("===== %d proxies survived round!", len(goodProxies))
-			for _, p := range goodProxies {
-				log.Println(p.Host)
-			}
-			proxies = goodProxies
-			goodProxies = []*url.URL{}
-		}
-
-		for _, i := range rand.Perm(len(proxies)) {
+		for pxI, i := range rand.Perm(len(proxies)) {
 			proxy := proxies[i]
 
 			id, gotJob := <-jobSrc
@@ -105,17 +92,17 @@ func worker(wg *sync.WaitGroup, db *sql.DB, jobSrc chan int, config *Config) {
 				wg.Done()
 				return
 			}
+			log.Printf("Got job %d, proxy %d", id, pxI)
 
 			httpClient := &http.Client{
 				Transport: &http.Transport{
 					Proxy: http.ProxyURL(proxy)}}
 
-			var pageURL = fmt.Sprintf(theQ, id)
-
-			q, err := fetchQuestion(pageURL, httpClient)
+			q, err := fetchQuestion(uint64(id), httpClient)
 			if err != nil {
 				continue
 			}
+			log.Printf("Good proxy: %s", proxy.Host)
 			goodProxies = append(goodProxies, proxy)
 
 			err = dbInsertQuestion(db, q)
@@ -123,7 +110,25 @@ func worker(wg *sync.WaitGroup, db *sql.DB, jobSrc chan int, config *Config) {
 				log.Printf("Failed to store %d: %v", id, err)
 			}
 		}
+
+		if len(goodProxies) == 0 {
+			log.Printf("Terminating worker: proxy list is empty.")
+			wg.Done()
+			return
+		}
+		log.Printf("===== %d proxies survived round!", len(goodProxies))
+		proxies = goodProxies
+		goodProxies = []*url.URL{}
+
 	}
+}
+
+func escape(str string) string {
+	str = strings.Replace(str, "\n", "", -1)
+	str = strings.Replace(str, "\t", " ", -1)
+	str = strings.Replace(str, "\\\"", "''", -1)
+	str = strings.Replace(str, "\\", "\\\\", -1)
+	return str
 }
 
 func dbInsertQuestion(db *sql.DB, q *Question) error {
@@ -135,16 +140,16 @@ func dbInsertQuestion(db *sql.DB, q *Question) error {
 	_, err = tx.Exec(
 		`insert into raw_question(id, data)
 			values ($1::int, $2::jsonb)`,
-		q.ID, q.JSON)
+		q.ID, escape(q.JSON))
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 	for _, ans := range q.Answers {
 		_, err = tx.Exec(
-			`insert into raw_answer(id, user_id, data)
-				values ($1::int, $2::int, $3::jsonb)`,
-			ans.ID, ans.UserID, ans.JSON)
+			`insert into raw_answer(id, q_id, user_id, data)
+				values ($1::int, $2::int, $3::int, $4::jsonb)`,
+			ans.ID, q.ID, ans.UserID, escape(ans.JSON))
 		if err != nil {
 			tx.Rollback()
 			return err
@@ -157,12 +162,12 @@ var errBadProxy = fmt.Errorf("Bad proxy?")
 var errMalformedQuestion = fmt.Errorf("Malformed question")
 var errRateLimit = fmt.Errorf("Rate limit")
 
-func fetchQuestion(url string, client *http.Client) (*Question, error) {
+func fetchQuestion(id uint64, client *http.Client) (*Question, error) {
+	var url = fmt.Sprintf(theQ, id)
 	req, err := http.NewRequest("GET", url, nil)
-	req.Header.Set("User-Agent", "Googlebot/2.1 (+http://www.google.com/bot.html)")
+	req.Header.Set("User-Agent", "Mozilla/2.0.4 (+http://mozilla.org/bot.html)")
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Println(err)
 		return nil, errBadProxy
 	}
 	defer resp.Body.Close()
@@ -170,13 +175,15 @@ func fetchQuestion(url string, client *http.Client) (*Question, error) {
 	if err != nil {
 		return nil, err
 	}
+	bodyTxt := string(body)
+	if strings.Contains(bodyTxt, "enot") {
+		return nil, errRateLimit
+	}
+	if strings.Contains(bodyTxt, "<title>Ошибка") {
+		return &Question{ID: id, JSON: "{}"}, nil
+	}
 	q, err := ParseQuestion(body)
 	if err != nil {
-		b := string(body)
-		if strings.Contains(b, "enot") || strings.Contains(b, "<title>Ошибка") {
-			return nil, errRateLimit
-		}
-		log.Println(string(body), err)
 		return nil, errMalformedQuestion
 	}
 	return q, nil

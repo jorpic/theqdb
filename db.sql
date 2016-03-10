@@ -5,6 +5,7 @@ create table raw_question (
 
 create table raw_answer (
   id int unique not null,
+  q_id int not null references raw_question(id),
   user_id int not null,
   data jsonb not null
 );
